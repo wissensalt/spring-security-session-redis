@@ -1,0 +1,66 @@
+# Register
+POST http://localhost:8080/register
+Content-Type: application/json
+
+{
+  "email": "account-one@mail.com",
+  "password": "password",
+  "role": "ADMIN"
+}
+
+###
+
+# Login
+POST http://localhost:8080/login
+Content-Type: application/json
+
+{
+  "email": "account-one@mail.com",
+  "password": "password"
+}
+
+###
+
+# Access User Api
+GET http://localhost:8080/user
+Accept: application/json
+X-Auth-Token: 7236284a-c369-498e-ae43-a3705ec64b2a
+
+###
+
+# Access Admin Api
+GET http://localhost:8080/admin
+Accept: application/json
+X-Auth-Token: 7236284a-c369-498e-ae43-a3705ec64b2a
+
+###
+
+# View Items
+GET http://localhost:8080/items
+Accept: application/json
+X-Auth-Token: 536afac7-4393-4179-b129-e5204e30b6e5
+
+###
+
+# Create Item
+POST http://localhost:8080/items
+Content-Type: application/json
+X-Auth-Token: d73e2d42-a795-414d-a428-e6fa50f68d5d
+
+{
+  "name": "laptop",
+  "price": 10000
+}
+
+###
+
+# Update Item
+PUT http://localhost:8080/items
+Content-Type: application/json
+X-Auth-Token: d73e2d42-a795-414d-a428-e6fa50f68d5d
+
+{
+  "id": 1,
+  "name": "updated-item",
+  "price": 20000
+}

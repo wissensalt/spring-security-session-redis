@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  db:
+    image: postgres:14-alpine
+    container_name: spring-security-redis-session
+    ports:
+      - "5433:5432"
+    environment:
+      - 'POSTGRES_USER=postgres'
+      - 'POSTGRES_PASSWORD=pgadmin'
+      - 'POSTGRES_DB=spring_security_redis_session'
+  cache:
+    image: redis:alpine3.19
+    container_name: spring-security-redis-session-cache
+    ports:
+      - "6380:6379"

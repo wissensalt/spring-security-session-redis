@@ -1,7 +1,7 @@
 version: "3.8"
 services:
   db:
-    image: postgres:14-alpine
+    image: postgres:17.2-alpine3.21
     container_name: spring-security-redis-session
     ports:
       - "5433:5432"
@@ -14,3 +14,13 @@ services:
     container_name: spring-security-redis-session-cache
     ports:
       - "6380:6379"
+  app:
+    build: .
+    depends_on:
+      - db
+      - cache
+    ports:
+      - "8080:8080"
+    links:
+      - db
+      - cache

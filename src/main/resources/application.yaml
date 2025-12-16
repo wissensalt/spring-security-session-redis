@@ -1,16 +1,16 @@
 spring:
   docker:
     compose:
-      enabled: true
+      enabled: false
       file: ./docker-compose.yml
   datasource:
-    url: jdbc:postgresql://localhost:5433/spring_security_redis_session
+    url: jdbc:postgresql://db:5432/spring_security_redis_session
     username: postgres
     password: pgadmin
   data:
     redis:
-      host: localhost
-      port: 6380
+      host: cache
+      port: 6379
       jedis:
         pool:
           enabled: true
@@ -23,6 +23,6 @@ spring:
 
 logging:
   level:
-    web: debug
-    org.springframework.security: debug
+    web: error
+    org.springframework.security: error
     org.springframework.data.redis: trace

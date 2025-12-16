@@ -1,0 +1,24 @@
+# Exclude files and directories not needed for Docker build
+target/
+.git/
+.gitignore
+.idea/
+*.iml
+.DS_Store
+README.md
+HELP.md
+screenshot-*.png
+curl.http
+docker-compose.yml
+
+# Exclude test resources if any
+src/test/
+
+# Exclude IDE and OS files
+*.swp
+*.swo
+*~
+.vscode/
+.project
+.classpath
+.settings/

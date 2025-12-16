@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.function.BiFunction;
 import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.data.redis.RedisProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
@@ -31,11 +32,11 @@ public class SessionConfig implements BeanClassLoaderAware {
   private ClassLoader loader;
 
   @Bean
-  public LettuceConnectionFactory redisConnectionFactory() {
+  public LettuceConnectionFactory redisConnectionFactory(RedisProperties redisProperties) {
     final RedisStandaloneConfiguration redisStandaloneConfiguration = (RedisStandaloneConfiguration) LettuceConnectionFactory.createRedisConfiguration(
         RedisURI.builder()
-            .withHost("localhost")
-            .withPort(6380)
+            .withHost(redisProperties.getHost())
+            .withPort(redisProperties.getPort())
             .build());
 
     LettuceClientConfiguration lettuceClientConfiguration = LettuceClientConfiguration.builder()

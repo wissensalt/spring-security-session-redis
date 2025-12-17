@@ -9,12 +9,17 @@ pipeline {
         DOCKER_VERSIONED = "${DOCKER_IMAGE}:${DOCKER_TAG}"
 
         // Maven configuration
-        MAVEN_OPTS = '-Xmx1024m -XX:MaxPermSize=512m'
+        MAVEN_OPTS = '-Xmx1024m -XX:MaxMetaspaceSize=512m'
         MAVEN_CLI_OPTS = '--batch-mode --errors --fail-at-end --show-version'
 
         // Application properties
         JAVA_VERSION = '21'
     }
+
+    // Optional: Uncomment if you have JDK configured in Jenkins Global Tool Configuration
+    // tools {
+    //     jdk 'jdk-21'  // Name must match your Jenkins JDK installation
+    // }
 
 
     stages {

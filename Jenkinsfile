@@ -94,6 +94,7 @@ pipeline {
                     echo "🧪 Running unit tests..."
                     sh "./mvnw ${MAVEN_CLI_OPTS} test"
                 }
+            }
         }
 
         stage('Package') {
@@ -157,6 +158,7 @@ pipeline {
                 }
             }
         }
+    }
 
     post {
         always {

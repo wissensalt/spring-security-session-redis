@@ -16,9 +16,6 @@ pipeline {
         JAVA_VERSION = '21'
     }
 
-    tools {
-        maven 'maven-3.9'
-    }
 
     stages {
         stage('Checkout') {
@@ -56,7 +53,8 @@ pipeline {
             steps {
                 script {
                     echo "✅ Validating project structure and dependencies..."
-                    sh "${MAVEN_CLI_OPTS} validate"
+                    sh "chmod +x ./mvnw"
+                    sh "./mvnw ${MAVEN_CLI_OPTS} validate"
 
                     // Check if required files exist
                     sh '''
@@ -74,7 +72,7 @@ pipeline {
             steps {
                 script {
                     echo "🔨 Compiling source code..."
-                    sh "mvn ${MAVEN_CLI_OPTS} compile"
+                    sh "./mvnw ${MAVEN_CLI_OPTS} compile"
                 }
             }
         }
@@ -83,7 +81,7 @@ pipeline {
             steps {
                 script {
                     echo "🧪 Running unit tests..."
-                    sh "mvn ${MAVEN_CLI_OPTS} test"
+                    sh "./mvnw ${MAVEN_CLI_OPTS} test"
                 }
             }
             post {
@@ -103,7 +101,7 @@ pipeline {
             steps {
                 script {
                     echo "📦 Packaging application..."
-                    sh "mvn ${MAVEN_CLI_OPTS} package -DskipTests"
+                    sh "./mvnw ${MAVEN_CLI_OPTS} package -DskipTests"
 
                     // Archive the built JAR
                     archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
@@ -119,7 +117,7 @@ pipeline {
                         script {
                             echo "🔒 Running security scan..."
                             // Using OWASP Dependency Check
-                            sh "mvn ${MAVEN_CLI_OPTS} org.owasp:dependency-check-maven:check || true"
+                            sh "./mvnw ${MAVEN_CLI_OPTS} org.owasp:dependency-check-maven:check || true"
                         }
                     }
                     post {
@@ -224,7 +222,7 @@ pipeline {
                             sleep 30
 
                             # Run integration tests
-                            mvn ${MAVEN_CLI_OPTS} verify -Pintegration-test || true
+                            ./mvnw ${MAVEN_CLI_OPTS} verify -Pintegration-test || true
 
                             # Cleanup
                             docker-compose -f docker-compose.yml down

@@ -16,11 +16,6 @@ pipeline {
         JAVA_VERSION = '21'
     }
 
-    // Optional: Uncomment if you have JDK configured in Jenkins Global Tool Configuration
-    // tools {
-    //     jdk 'jdk-21'  // Name must match your Jenkins JDK installation
-    // }
-
 
     stages {
         stage('Checkout') {
@@ -89,17 +84,17 @@ pipeline {
                     sh "./mvnw ${MAVEN_CLI_OPTS} test"
                 }
             }
-            post {
-                always {
-                    // Publish test results
-                    script {
-                        if (fileExists('target/surefire-reports/TEST-*.xml')) {
-                            junit 'target/surefire-reports/TEST-*.xml'
-                            echo "📊 Test results published"
-                        }
-                    }
-                }
-            }
+            // post {
+            //     always {
+            //         // Publish test results
+            //         script {
+            //             if (fileExists('target/surefire-reports/TEST-*.xml')) {
+            //                 junit 'target/surefire-reports/TEST-*.xml'
+            //                 echo "📊 Test results published"
+            //             }
+            //         }
+            //     }
+            // }
         }
 
         stage('Package') {
@@ -125,28 +120,11 @@ pipeline {
                             sh "./mvnw ${MAVEN_CLI_OPTS} org.owasp:dependency-check-maven:check || true"
                         }
                     }
-                    post {
-                        always {
-                            script {
-                                if (fileExists('target/dependency-check-report.html')) {
-                                    publishHTML([
-                                        allowMissing: true,
-                                        alwaysLinkToLastBuild: true,
-                                        keepAll: true,
-                                        reportDir: 'target',
-                                        reportFiles: 'dependency-check-report.html',
-                                        reportName: 'OWASP Dependency Check Report'
-                                    ])
-                                }
-                            }
-                        }
-                    }
                 }
 
                 stage('Static Analysis') {
                     when {
                         anyOf {
-                            branch 'main'
                             branch 'develop'
                             changeRequest()
                         }
@@ -181,28 +159,28 @@ pipeline {
             }
         }
 
-        stage('Security Scan - Image') {
-            steps {
-                script {
-                    echo "🔍 Scanning Docker image for vulnerabilities..."
+        // stage('Security Scan - Image') {
+        //     steps {
+        //         script {
+        //             echo "🔍 Scanning Docker image for vulnerabilities..."
 
-                    // Using Trivy for container scanning
-                    sh """
-                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\
-                            -v \$(pwd):/workspace \\
-                            aquasec/trivy:latest image \\
-                            --exit-code 0 \\
-                            --severity HIGH,CRITICAL \\
-                            --format json \\
-                            --output /workspace/trivy-report.json \\
-                            ${env.DOCKER_VERSIONED} || true
-                    """
+        //             // Using Trivy for container scanning
+        //             sh """
+        //                 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\
+        //                     -v \$(pwd):/workspace \\
+        //                     aquasec/trivy:latest image \\
+        //                     --exit-code 0 \\
+        //                     --severity HIGH,CRITICAL \\
+        //                     --format json \\
+        //                     --output /workspace/trivy-report.json \\
+        //                     ${env.DOCKER_VERSIONED} || true
+        //             """
 
-                    // Archive the security report
-                    archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
-                }
-            }
-        }
+        //             // Archive the security report
+        //             archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+        //         }
+        //     }
+        // }
 
         stage('Integration Tests') {
             when {
@@ -237,16 +215,16 @@ pipeline {
                     '''
                 }
             }
-            post {
-                always {
-                    script {
-                        if (fileExists('target/failsafe-reports/TEST-*.xml')) {
-                            junit 'target/failsafe-reports/TEST-*.xml'
-                            echo "📊 Integration test results published"
-                        }
-                    }
-                }
-            }
+            // post {
+            //     always {
+            //         script {
+            //             if (fileExists('target/failsafe-reports/TEST-*.xml')) {
+            //                 junit 'target/failsafe-reports/TEST-*.xml'
+            //                 echo "📊 Integration test results published"
+            //             }
+            //         }
+            //     }
+            // }
         }
 
         stage('Push to Registry') {

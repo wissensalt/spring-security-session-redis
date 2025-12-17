@@ -1,6 +1,13 @@
 pipeline {
     agent any
 
+    options {
+        // Build options
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 30, unit: 'MINUTES')
+        timestamps()
+    }
+
     environment {
         // Docker image configuration
         DOCKER_IMAGE = 'quay.io/wissensalt/spring-security-session-redis'
@@ -22,6 +29,8 @@ pipeline {
             steps {
                 script {
                     echo "🔄 Checking out code from SCM..."
+
+                    // Standard checkout
                     checkout scm
 
                     // Get commit info for tagging
@@ -32,6 +41,8 @@ pipeline {
 
                     env.DOCKER_TAG = "${BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
                     env.DOCKER_VERSIONED = "${DOCKER_IMAGE}:${env.DOCKER_TAG}"
+
+                    echo "✅ Code checked out successfully"
                 }
             }
         }

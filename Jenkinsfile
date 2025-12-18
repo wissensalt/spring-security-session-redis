@@ -155,36 +155,37 @@ pipeline {
                 script {
                     echo "🐳 Building Docker image..."
 
-                // Check if Docker is available
-                def dockerAvailable = sh(
-                        script: 'docker --version >/dev/null 2>&1 && echo "available" || echo "not_available"',
-                        returnStdout: true
-                    ).trim()
-
-                    if (dockerAvailable == 'not_available') {
-                        echo "❌ Docker not available on this agent"
-                        error("Docker is required to build images")
-                    }
-
-                    // Build the Docker image using shell commands
+                    // For macOS Podman setup - build image on host and copy to container
                     sh """
-                        echo "Building Docker image: ${env.DOCKER_VERSIONED}"
-                        docker build -t ${env.DOCKER_VERSIONED} .
+                        echo "Building Docker image on host with Podman: ${env.DOCKER_VERSIONED}"
 
-                        # Verify the image was built
-                        docker images ${env.DOCKER_IMAGE}
-                        echo "✅ Docker image built successfully"
+                        # Build image using host Podman (from outside container)
+                        # This works because the Jenkinsfile runs shell commands on the host
                     """
+
+                    // Build on the host system using Podman
+                    def buildResult = sh(
+                        script: """
+                            cd "${WORKSPACE}"
+                            podman build -t ${env.DOCKER_VERSIONED} .
+                            podman images ${env.DOCKER_IMAGE}
+                        """,
+                        returnStatus: true
+                    )
+
+                    if (buildResult != 0) {
+                        error("Failed to build Docker image with Podman")
+                    }
 
                     // Tag as latest for main branch
                     if (env.BRANCH_NAME == 'main') {
                         sh """
-                            docker tag ${env.DOCKER_VERSIONED} ${env.DOCKER_IMAGE}:latest
+                            podman tag ${env.DOCKER_VERSIONED} ${env.DOCKER_IMAGE}:latest
                             echo "✅ Tagged as latest"
                         """
                     }
 
-                    echo "✅ Docker image built: ${env.DOCKER_VERSIONED}"
+                    echo "✅ Docker image built with Podman: ${env.DOCKER_VERSIONED}"
                 }
             }
         }
@@ -203,7 +204,7 @@ pipeline {
 
                     // Check if image exists locally
                     def imageExists = sh(
-                        script: "docker images -q ${env.DOCKER_VERSIONED} 2>/dev/null || echo ''",
+                        script: "podman images -q ${env.DOCKER_VERSIONED} 2>/dev/null || echo ''",
                         returnStdout: true
                     ).trim()
 
@@ -213,26 +214,26 @@ pipeline {
                         return
                     }
 
-                    // Login and push to Quay.io registry
+                    // Login and push to Quay.io registry using Podman
                     withCredentials([usernamePassword(credentialsId: 'quay-io-credentials',
                                                     usernameVariable: 'QUAY_USERNAME',
                                                     passwordVariable: 'QUAY_PASSWORD')]) {
                         sh """
-                            # Login to Quay.io
-                            echo "\$QUAY_PASSWORD" | docker login quay.io -u "\$QUAY_USERNAME" --password-stdin
+                            # Login to Quay.io using Podman
+                            echo "\$QUAY_PASSWORD" | podman login quay.io -u "\$QUAY_USERNAME" --password-stdin
 
                             # Push versioned image
-                            docker push ${env.DOCKER_VERSIONED}
+                            podman push ${env.DOCKER_VERSIONED}
                             echo "✅ Pushed: ${env.DOCKER_VERSIONED}"
 
                             # Push latest for main branch
                             if [ "${env.BRANCH_NAME}" = "main" ]; then
-                                docker push ${env.DOCKER_IMAGE}:latest
+                                podman push ${env.DOCKER_IMAGE}:latest
                                 echo "✅ Pushed: ${env.DOCKER_IMAGE}:latest"
                             fi
 
                             # Logout for security
-                            docker logout quay.io
+                            podman logout quay.io
                         """
                     }
 
@@ -246,13 +247,12 @@ pipeline {
                 script {
                     echo "🔍 Scanning Docker image for vulnerabilities..."
 
-                    // Using Trivy for container scanning
+                    // Using Trivy for container scanning with Podman
                     sh """
-                        # Check if Trivy is available, if not, skip security scan
-                        if command -v docker >/dev/null 2>&1; then
-                            echo "Running Trivy security scan..."
-                            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\
-                                -v \$(pwd):/workspace \\
+                        # Check if Podman is available for security scanning
+                        if command -v podman >/dev/null 2>&1; then
+                            echo "Running Trivy security scan with Podman..."
+                            podman run --rm -v \$(pwd):/workspace \\
                                 aquasec/trivy:latest image \\
                                 --exit-code 0 \\
                                 --severity HIGH,CRITICAL \\
@@ -267,7 +267,7 @@ pipeline {
                                 echo "⚠️ Security scan failed or no report generated"
                             fi
                         else
-                            echo "Docker not available, skipping security scan"
+                            echo "Podman not available, skipping security scan"
                         fi
                     """
 
@@ -365,9 +365,20 @@ pipeline {
             script {
                 echo "🧹 Cleaning up workspace..."
 
-                // Clean up Docker images to save space (only if docker available)
+                // Clean up Docker images to save space (using Podman on macOS)
                 sh """
-                    if command -v docker >/dev/null 2>&1; then
+                    if command -v podman >/dev/null 2>&1; then
+                        echo "Cleaning up Podman images..."
+                        # Remove built images
+                        podman rmi ${env.DOCKER_VERSIONED} || true
+                        if [ "${env.BRANCH_NAME}" = "main" ]; then
+                            podman rmi ${env.DOCKER_IMAGE}:latest || true
+                        fi
+
+                        # Clean up dangling images
+                        podman image prune -f || true
+                        echo "✅ Podman cleanup completed"
+                    elif command -v docker >/dev/null 2>&1; then
                         echo "Cleaning up Docker images..."
                         # Remove built images
                         docker rmi ${env.DOCKER_VERSIONED} || true
@@ -379,7 +390,7 @@ pipeline {
                         docker image prune -f || true
                         echo "✅ Docker cleanup completed"
                     else
-                        echo "Docker not available, skipping image cleanup"
+                        echo "Neither Docker nor Podman available, skipping image cleanup"
                     fi
                 """
 

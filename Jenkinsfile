@@ -131,23 +131,6 @@ pipeline {
                             sh "./mvnw ${MAVEN_CLI_OPTS} org.owasp:dependency-check-maven:check || true"
                         }
                     }
-                    post {
-                        always {
-                            script {
-                                if (fileExists('target/dependency-check-report.html')) {
-                                    publishHTML([
-                                        allowMissing: true,
-                                        alwaysLinkToLastBuild: true,
-                                        keepAll: true,
-                                        reportDir: 'target',
-                                        reportFiles: 'dependency-check-report.html',
-                                        reportName: 'OWASP Dependency Check Report'
-                                    ])
-                                }
-                            }
-                        }
-                    }
-                }
 
                 stage('Static Analysis') {
                     when {
@@ -326,16 +309,6 @@ pipeline {
                             echo "No docker-compose.yml found, skipping integration tests"
                         fi
                     '''
-                }
-            }
-            post {
-                always {
-                    script {
-                        if (fileExists('target/failsafe-reports/TEST-*.xml')) {
-                            junit 'target/failsafe-reports/TEST-*.xml'
-                            echo "📊 Integration test results published"
-                        }
-                    }
                 }
             }
         }

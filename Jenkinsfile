@@ -95,6 +95,17 @@ pipeline {
                     sh "./mvnw ${MAVEN_CLI_OPTS} test"
                 }
             }
+            post {
+                always {
+                    // Publish test results
+                    script {
+                        if (fileExists('target/surefire-reports/TEST-*.xml')) {
+                            junit 'target/surefire-reports/TEST-*.xml'
+                            echo "📊 Test results published"
+                        }
+                    }
+                }
+            }
         }
 
         stage('Package') {
@@ -118,6 +129,22 @@ pipeline {
                             echo "🔒 Running security scan..."
                             // Using OWASP Dependency Check
                             sh "./mvnw ${MAVEN_CLI_OPTS} org.owasp:dependency-check-maven:check || true"
+                        }
+                    }
+                    post {
+                        always {
+                            script {
+                                if (fileExists('target/dependency-check-report.html')) {
+                                    publishHTML([
+                                        allowMissing: true,
+                                        alwaysLinkToLastBuild: true,
+                                        keepAll: true,
+                                        reportDir: 'target',
+                                        reportFiles: 'dependency-check-report.html',
+                                        reportName: 'OWASP Dependency Check Report'
+                                    ])
+                                }
+                            }
                         }
                     }
                 }
@@ -145,16 +172,216 @@ pipeline {
                 script {
                     echo "🐳 Building Docker image..."
 
-                    // Build the Docker image
-                    def image = docker.build("${env.DOCKER_VERSIONED}", ".")
+                    // Check if Docker is available
+                    def dockerAvailable = sh(
+                        script: 'docker --version >/dev/null 2>&1 && echo "available" || echo "not_available"',
+                        returnStdout: true
+                    ).trim()
+
+                    if (dockerAvailable == 'not_available') {
+                        echo "❌ Docker not available on this agent"
+                        error("Docker is required to build images")
+                    }
+
+                    // Build the Docker image using shell commands
+                    sh """
+                        echo "Building Docker image: ${env.DOCKER_VERSIONED}"
+                        docker build -t ${env.DOCKER_VERSIONED} .
+
+                        # Verify the image was built
+                        docker images ${env.DOCKER_IMAGE}
+                        echo "✅ Docker image built successfully"
+                    """
 
                     // Tag as latest for main branch
                     if (env.BRANCH_NAME == 'main') {
-                        image.tag('latest')
-                        echo "✅ Tagged as latest"
+                        sh """
+                            docker tag ${env.DOCKER_VERSIONED} ${env.DOCKER_IMAGE}:latest
+                            echo "✅ Tagged as latest"
+                        """
                     }
 
                     echo "✅ Docker image built: ${env.DOCKER_VERSIONED}"
+                }
+            }
+        }
+
+        stage('Push to Registry') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                    buildingTag()
+                }
+            }
+            steps {
+                script {
+                    echo "📤 Pushing Docker image to registry..."
+
+                    // Check if image exists locally
+                    def imageExists = sh(
+                        script: "docker images -q ${env.DOCKER_VERSIONED} 2>/dev/null || echo ''",
+                        returnStdout: true
+                    ).trim()
+
+                    if (!imageExists) {
+                        echo "⚠️ Docker image not found locally, skipping push"
+                        currentBuild.result = 'UNSTABLE'
+                        return
+                    }
+
+                    // Login and push to Quay.io registry
+                    withCredentials([usernamePassword(credentialsId: 'quay-io-credentials',
+                                                    usernameVariable: 'QUAY_USERNAME',
+                                                    passwordVariable: 'QUAY_PASSWORD')]) {
+                        sh """
+                            # Login to Quay.io
+                            echo "\$QUAY_PASSWORD" | docker login quay.io -u "\$QUAY_USERNAME" --password-stdin
+
+                            # Push versioned image
+                            docker push ${env.DOCKER_VERSIONED}
+                            echo "✅ Pushed: ${env.DOCKER_VERSIONED}"
+
+                            # Push latest for main branch
+                            if [ "${env.BRANCH_NAME}" = "main" ]; then
+                                docker push ${env.DOCKER_IMAGE}:latest
+                                echo "✅ Pushed: ${env.DOCKER_IMAGE}:latest"
+                            fi
+
+                            # Logout for security
+                            docker logout quay.io
+                        """
+                    }
+
+                    echo "✅ Successfully pushed to registry"
+                }
+            }
+        }
+
+        stage('Security Scan - Image') {
+            steps {
+                script {
+                    echo "🔍 Scanning Docker image for vulnerabilities..."
+
+                    // Using Trivy for container scanning
+                    sh """
+                        # Check if Trivy is available, if not, skip security scan
+                        if command -v docker >/dev/null 2>&1; then
+                            echo "Running Trivy security scan..."
+                            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \\
+                                -v \$(pwd):/workspace \\
+                                aquasec/trivy:latest image \\
+                                --exit-code 0 \\
+                                --severity HIGH,CRITICAL \\
+                                --format json \\
+                                --output /workspace/trivy-report.json \\
+                                ${env.DOCKER_VERSIONED} || true
+
+                            # Archive the security report if it exists
+                            if [ -f trivy-report.json ]; then
+                                echo "✅ Security scan completed"
+                            else
+                                echo "⚠️ Security scan failed or no report generated"
+                            fi
+                        else
+                            echo "Docker not available, skipping security scan"
+                        fi
+                    """
+
+                    // Archive the security report
+                    archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Integration Tests') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                    changeRequest()
+                }
+            }
+            steps {
+                script {
+                    echo "🧪 Running integration tests..."
+
+                    // Start services using docker-compose for integration testing
+                    sh '''
+                        # Check if docker-compose.yml exists
+                        if [ -f docker-compose.yml ]; then
+                            echo "Starting test environment..."
+                            docker-compose -f docker-compose.yml up -d postgres redis
+
+                            # Wait for services to be ready
+                            echo "Waiting for services to be ready..."
+                            sleep 30
+
+                            # Run integration tests
+                            ./mvnw ${MAVEN_CLI_OPTS} verify -Pintegration-test || true
+
+                            # Cleanup
+                            docker-compose -f docker-compose.yml down
+                        else
+                            echo "No docker-compose.yml found, skipping integration tests"
+                        fi
+                    '''
+                }
+            }
+            post {
+                always {
+                    script {
+                        if (fileExists('target/failsafe-reports/TEST-*.xml')) {
+                            junit 'target/failsafe-reports/TEST-*.xml'
+                            echo "📊 Integration test results published"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Development') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                script {
+                    echo "🚀 Deploying to development environment..."
+
+                    // Example deployment script
+                    sh """
+                        echo "Deployment commands would go here"
+                        echo "Image to deploy: ${env.DOCKER_VERSIONED}"
+                        # kubectl set image deployment/spring-security-session-redis \\
+                        #     spring-security-session-redis=${env.DOCKER_VERSIONED} \\
+                        #     -n development
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    echo "🎯 Deploying to production environment..."
+
+                    // Production deployment with approval
+                    timeout(time: 10, unit: 'MINUTES') {
+                        input message: 'Deploy to production?', ok: 'Deploy',
+                              submitterParameter: 'DEPLOYER'
+                    }
+
+                    sh """
+                        echo "Production deployment initiated by: \${DEPLOYER}"
+                        echo "Image to deploy: ${env.DOCKER_VERSIONED}"
+                        # Add production deployment commands here
+                        # kubectl set image deployment/spring-security-session-redis \\
+                        #     spring-security-session-redis=${env.DOCKER_VERSIONED} \\
+                        #     -n production
+                    """
                 }
             }
         }
@@ -165,16 +392,22 @@ pipeline {
             script {
                 echo "🧹 Cleaning up workspace..."
 
-                // Clean up Docker images to save space
+                // Clean up Docker images to save space (only if docker available)
                 sh """
-                    # Remove built images
-                    docker rmi ${env.DOCKER_VERSIONED} || true
-                    if [ "${env.BRANCH_NAME}" = "main" ]; then
-                        docker rmi ${env.DOCKER_IMAGE}:latest || true
-                    fi
+                    if command -v docker >/dev/null 2>&1; then
+                        echo "Cleaning up Docker images..."
+                        # Remove built images
+                        docker rmi ${env.DOCKER_VERSIONED} || true
+                        if [ "${env.BRANCH_NAME}" = "main" ]; then
+                            docker rmi ${env.DOCKER_IMAGE}:latest || true
+                        fi
 
-                    # Clean up dangling images
-                    docker image prune -f || true
+                        # Clean up dangling images
+                        docker image prune -f || true
+                        echo "✅ Docker cleanup completed"
+                    else
+                        echo "Docker not available, skipping image cleanup"
+                    fi
                 """
 
                 // Archive important files

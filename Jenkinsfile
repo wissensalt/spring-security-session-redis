@@ -131,7 +131,7 @@ pipeline {
                             sh "./mvnw ${MAVEN_CLI_OPTS} org.owasp:dependency-check-maven:check || true"
                         }
                     }
-
+                }
                 stage('Static Analysis') {
                     when {
                         anyOf {
@@ -155,8 +155,8 @@ pipeline {
                 script {
                     echo "🐳 Building Docker image..."
 
-                    // Check if Docker is available
-                    def dockerAvailable = sh(
+                // Check if Docker is available
+                def dockerAvailable = sh(
                         script: 'docker --version >/dev/null 2>&1 && echo "available" || echo "not_available"',
                         returnStdout: true
                     ).trim()

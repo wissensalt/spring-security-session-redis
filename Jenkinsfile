@@ -173,7 +173,7 @@ pipeline {
                     // Build on the host system using Podman
                     def buildResult = sh(
                         script: """
-                            podman build -t .
+                            podman build -t ${env.DOCKER_VERSIONED} .
                         """,
                         returnStatus: true
                     )

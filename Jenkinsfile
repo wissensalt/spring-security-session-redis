@@ -164,6 +164,7 @@ pipeline {
                     """
 
                     sh """
+                    ls -lah
                     echo "WORKSPACE: ${WORKSPACE}"
                     echo "DOCKER_VERSIONED: ${env.DOCKER_VERSIONED}"
                     echo "DOCKER_IMAGE: ${env.DOCKER_IMAGE}"

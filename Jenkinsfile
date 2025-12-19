@@ -155,14 +155,6 @@ pipeline {
                 script {
                     echo "🐳 Building Docker image..."
 
-                    // For macOS Podman setup - build image on host and copy to container
-                    sh """
-                        echo "Building Docker image on host with Podman: ${env.DOCKER_VERSIONED}"
-
-                        # Build image using host Podman (from outside container)
-                        # This works because the Jenkinsfile runs shell commands on the host
-                    """
-
                     sh """
                     ls -lah
                     echo "WORKSPACE: ${WORKSPACE}"
@@ -170,10 +162,14 @@ pipeline {
                     echo "DOCKER_IMAGE: ${env.DOCKER_IMAGE}"
                     """
 
-                    // Build on the host system using Podman
+                    // Build on host system using Podman with fully qualified image names
                     def buildResult = sh(
                         script: """
-                            podman build -t ${env.DOCKER_VERSIONED} .
+                            # Create Dockerfile with fully qualified registry names
+                            sed 's|FROM eclipse-temurin:|FROM docker.io/library/eclipse-temurin:|g' Dockerfile > Dockerfile.fq
+                            
+                            # Build using fully qualified registry names to avoid registry resolution issues
+                            podman build -f Dockerfile.fq -t ${env.DOCKER_VERSIONED} .
                         """,
                         returnStatus: true
                     )
@@ -373,15 +369,19 @@ pipeline {
                 // Clean up Docker images to save space (using Podman on macOS)
                 sh """
                     if command -v podman >/dev/null 2>&1; then
-                        echo "Cleaning up Podman images..."
-                        # Remove built images
+                        echo "Cleaning up Podman images on host..."
+                        # Remove built images from host
                         podman rmi ${env.DOCKER_VERSIONED} || true
                         if [ "${env.BRANCH_NAME}" = "main" ]; then
                             podman rmi ${env.DOCKER_IMAGE}:latest || true
                         fi
 
-                        # Clean up dangling images
+                        # Clean up dangling images on host
                         podman image prune -f || true
+                        
+                        # Remove temporary dockerfile
+                        rm -f ${WORKSPACE}/Dockerfile.fq || true
+                        
                         echo "✅ Podman cleanup completed"
                     elif command -v docker >/dev/null 2>&1; then
                         echo "Cleaning up Docker images..."

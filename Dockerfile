@@ -1,5 +1,5 @@
 # Multi-stage build for Spring Boot application
-FROM azul/zulu-openjdk:21-jdk-crac AS builder
+FROM eclipse-temurin:21-jdk AS builder
 
 # Set working directory
 WORKDIR /app
@@ -23,7 +23,7 @@ COPY src src
 RUN ./mvnw clean package -DskipTests -B
 
 # Production stage
-FROM azul/zulu-openjdk:21-jre-headless AS runtime
+FROM eclipse-temurin:21-jre AS runtime
 
 # Create non-root user for security
 RUN groupadd -r spring && useradd -r -g spring spring

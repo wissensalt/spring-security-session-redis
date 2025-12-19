@@ -163,6 +163,12 @@ pipeline {
                         # This works because the Jenkinsfile runs shell commands on the host
                     """
 
+                    sh """
+                    echo "WORKSPACE: ${WORKSPACE}"
+                    echo "DOCKER_VERSIONED: ${env.DOCKER_VERSIONED}"
+                    echo "DOCKER_IMAGE: ${env.DOCKER_IMAGE}"
+                    """
+
                     // Build on the host system using Podman
                     def buildResult = sh(
                         script: """

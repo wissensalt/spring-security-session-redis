@@ -173,9 +173,7 @@ pipeline {
                     // Build on the host system using Podman
                     def buildResult = sh(
                         script: """
-                            cd "${WORKSPACE}"
-                            podman build -t ${env.DOCKER_VERSIONED} .
-                            podman images ${env.DOCKER_IMAGE}
+                            podman build -t .
                         """,
                         returnStatus: true
                     )

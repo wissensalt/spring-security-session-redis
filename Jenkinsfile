@@ -17,7 +17,7 @@ pipeline {
 
         // Maven configuration
         MAVEN_OPTS = '-Xmx1024m -XX:MaxMetaspaceSize=512m'
-        MAVEN_CLI_OPTS = '--show-version -Duser.home=/var/jenkins_home'
+        MAVEN_CLI_OPTS = '--batch-mode --errors --fail-at-end --show-version'
 
         // Application properties
         JAVA_VERSION = '21'

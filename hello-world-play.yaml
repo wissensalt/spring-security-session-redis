@@ -1,0 +1,10 @@
+---
+- name: Basic playbook to say hello
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Print a message
+      ansible.builtin.debug:
+        msg: "Hello, World!"

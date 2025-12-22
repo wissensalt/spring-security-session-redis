@@ -447,49 +447,49 @@ pipeline {
     }
 
     post {
-        always {
-            script {
-                echo "🧹 Cleaning up workspace..."
+        // always {
+        //     script {
+        //         echo "🧹 Cleaning up workspace..."
 
-                // Clean up container images to save space
-                sh """
-                    # Determine which tool to use for cleanup
-                    CLEANUP_TOOL=""
-                    if command -v buildah >/dev/null 2>&1; then
-                        CLEANUP_TOOL="buildah"
-                    elif command -v podman >/dev/null 2>&1; then
-                        CLEANUP_TOOL="podman"
-                    elif command -v docker >/dev/null 2>&1; then
-                        CLEANUP_TOOL="docker"
-                    fi
+        //         // Clean up container images to save space
+        //         sh """
+        //             # Determine which tool to use for cleanup
+        //             CLEANUP_TOOL=""
+        //             if command -v buildah >/dev/null 2>&1; then
+        //                 CLEANUP_TOOL="buildah"
+        //             elif command -v podman >/dev/null 2>&1; then
+        //                 CLEANUP_TOOL="podman"
+        //             elif command -v docker >/dev/null 2>&1; then
+        //                 CLEANUP_TOOL="docker"
+        //             fi
                     
-                    if [ -n "\$CLEANUP_TOOL" ]; then
-                        echo "Cleaning up container images with \$CLEANUP_TOOL..."
+        //             if [ -n "\$CLEANUP_TOOL" ]; then
+        //                 echo "Cleaning up container images with \$CLEANUP_TOOL..."
                         
-                        # Remove built images
-                        \$CLEANUP_TOOL rmi ${env.DOCKER_VERSIONED} || true
-                        if [ "${env.BRANCH_NAME}" = "main" ]; then
-                            \$CLEANUP_TOOL rmi ${env.DOCKER_IMAGE}:latest || true
-                        fi
+        //                 # Remove built images
+        //                 \$CLEANUP_TOOL rmi ${env.DOCKER_VERSIONED} || true
+        //                 if [ "${env.BRANCH_NAME}" = "main" ]; then
+        //                     \$CLEANUP_TOOL rmi ${env.DOCKER_IMAGE}:latest || true
+        //                 fi
 
-                        # Clean up dangling images (if supported)
-                        if [ "\$CLEANUP_TOOL" != "buildah" ]; then
-                            \$CLEANUP_TOOL image prune -f || true
-                        fi
+        //                 # Clean up dangling images (if supported)
+        //                 if [ "\$CLEANUP_TOOL" != "buildah" ]; then
+        //                     \$CLEANUP_TOOL image prune -f || true
+        //                 fi
                         
-                        echo "✅ \$CLEANUP_TOOL cleanup completed"
-                    else
-                        echo "No container tool available, skipping image cleanup"
-                    fi
+        //                 echo "✅ \$CLEANUP_TOOL cleanup completed"
+        //             else
+        //                 echo "No container tool available, skipping image cleanup"
+        //             fi
                     
-                    # Remove temporary dockerfile
-                    rm -f ${WORKSPACE}/Dockerfile.fq || true
-                """
+        //             # Remove temporary dockerfile
+        //             rm -f ${WORKSPACE}/Dockerfile.fq || true
+        //         """
 
-                // Archive important files
-                archiveArtifacts artifacts: 'target/spring-*.jar', allowEmptyArchive: true
-            }
-        }
+        //         // Archive important files
+        //         archiveArtifacts artifacts: 'target/spring-*.jar', allowEmptyArchive: true
+        //     }
+        // }
         success {
             script {
                 echo "✅ Pipeline completed successfully!"

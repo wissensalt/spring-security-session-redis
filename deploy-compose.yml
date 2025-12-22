@@ -1,7 +1,6 @@
 ---
-- name: Build Docker image (via docker-compose). Build on local machine
+- name: Build Docker image (via docker-compose). Build on remote machine
   hosts: exp
-  connection: local
   gather_facts: false
   vars:
     container_name: app
@@ -20,7 +19,7 @@
         state: absent
       ignore_errors: yes
 
-    - name: Build and deploy on Remote Machine
+    - name: Build and deploy on Remote Machine using host Docker
       community.docker.docker_compose_v2:
         project_src: .
         build: always

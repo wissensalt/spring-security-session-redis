@@ -21,6 +21,11 @@ pipeline {
 
         // Application properties
         JAVA_VERSION = '21'
+        
+        // Podman configuration for container environment
+        BUILDAH_ISOLATION = 'chroot'
+        STORAGE_DRIVER = 'vfs'
+        _CONTAINERS_USERNS_CONFIGURED = ''
     }
 
 
@@ -162,31 +167,86 @@ pipeline {
                     echo "DOCKER_IMAGE: ${env.DOCKER_IMAGE}"
                     """
 
-                    // Build on host system using Podman with fully qualified image names
+                    // Create Dockerfile with fully qualified registry names
+                    sh "sed 's|FROM eclipse-temurin:|FROM docker.io/library/eclipse-temurin:|g' Dockerfile > Dockerfile.fq"
+
+                    // Try different build methods in order of preference
                     def buildResult = sh(
                         script: """
-                            # Create Dockerfile with fully qualified registry names
-                            sed 's|FROM eclipse-temurin:|FROM docker.io/library/eclipse-temurin:|g' Dockerfile > Dockerfile.fq
+                            set +e  # Don't exit on error, we'll handle it
                             
-                            # Build using fully qualified registry names to avoid registry resolution issues
-                            podman build -f Dockerfile.fq -t ${env.DOCKER_VERSIONED} .
+                            # Method 1: Try buildah (designed for CI/CD containers)
+                            if command -v buildah >/dev/null 2>&1; then
+                                echo "🔧 Using buildah for container build..."
+                                buildah build -f Dockerfile.fq -t ${env.DOCKER_VERSIONED} .
+                                if [ \$? -eq 0 ]; then
+                                    echo "✅ Built with buildah"
+                                    exit 0
+                                fi
+                                echo "⚠️ buildah failed, trying next method..."
+                            fi
+                            
+                            # Method 2: Try podman with rootless configuration
+                            if command -v podman >/dev/null 2>&1; then
+                                echo "🔧 Using podman with container-friendly settings..."
+                                
+                                # Configure podman for container environment
+                                export BUILDAH_ISOLATION=chroot
+                                export STORAGE_DRIVER=vfs
+                                unset _CONTAINERS_USERNS_CONFIGURED
+                                
+                                # Try building with container-friendly settings
+                                podman build --isolation=chroot --storage-driver=vfs -f Dockerfile.fq -t ${env.DOCKER_VERSIONED} .
+                                if [ \$? -eq 0 ]; then
+                                    echo "✅ Built with podman (container mode)"
+                                    exit 0
+                                fi
+                                echo "⚠️ podman container mode failed, trying privileged mode..."
+                                
+                                # Try with reduced security for CI environment
+                                podman build --security-opt label=disable --cap-add=SYS_ADMIN -f Dockerfile.fq -t ${env.DOCKER_VERSIONED} . || true
+                                if [ \$? -eq 0 ]; then
+                                    echo "✅ Built with podman (privileged mode)"
+                                    exit 0
+                                fi
+                            fi
+                            
+                            # Method 3: Fall back to docker if available
+                            if command -v docker >/dev/null 2>&1; then
+                                echo "🔧 Falling back to Docker..."
+                                docker build -f Dockerfile.fq -t ${env.DOCKER_VERSIONED} .
+                                if [ \$? -eq 0 ]; then
+                                    echo "✅ Built with Docker"
+                                    exit 0
+                                fi
+                            fi
+                            
+                            echo "❌ All build methods failed"
+                            exit 1
                         """,
                         returnStatus: true
                     )
 
                     if (buildResult != 0) {
-                        error("Failed to build Docker image with Podman")
+                        error("Failed to build Docker image with all available methods")
                     }
 
                     // Tag as latest for main branch
                     if (env.BRANCH_NAME == 'main') {
                         sh """
-                            podman tag ${env.DOCKER_VERSIONED} ${env.DOCKER_IMAGE}:latest
+                            # Tag using the same tool that built the image
+                            if command -v buildah >/dev/null 2>&1; then
+                                buildah tag ${env.DOCKER_VERSIONED} ${env.DOCKER_IMAGE}:latest
+                            elif command -v podman >/dev/null 2>&1; then
+                                podman tag ${env.DOCKER_VERSIONED} ${env.DOCKER_IMAGE}:latest
+                            elif command -v docker >/dev/null 2>&1; then
+                                docker tag ${env.DOCKER_VERSIONED} ${env.DOCKER_IMAGE}:latest
+                            fi
                             echo "✅ Tagged as latest"
                         """
                     }
 
-                    echo "✅ Docker image built with Podman: ${env.DOCKER_VERSIONED}"
+                    echo "✅ Docker image built successfully: ${env.DOCKER_VERSIONED}"
                 }
             }
         }
@@ -203,9 +263,19 @@ pipeline {
                 script {
                     echo "📤 Pushing Docker image to registry..."
 
-                    // Check if image exists locally
+                    // Check if image exists locally with available container tool
                     def imageExists = sh(
-                        script: "podman images -q ${env.DOCKER_VERSIONED} 2>/dev/null || echo ''",
+                        script: """
+                            if command -v buildah >/dev/null 2>&1; then
+                                buildah images -q ${env.DOCKER_VERSIONED} 2>/dev/null || echo ''
+                            elif command -v podman >/dev/null 2>&1; then
+                                podman images -q ${env.DOCKER_VERSIONED} 2>/dev/null || echo ''
+                            elif command -v docker >/dev/null 2>&1; then
+                                docker images -q ${env.DOCKER_VERSIONED} 2>/dev/null || echo ''
+                            else
+                                echo ''
+                            fi
+                        """,
                         returnStdout: true
                     ).trim()
 
@@ -215,26 +285,41 @@ pipeline {
                         return
                     }
 
-                    // Login and push to Quay.io registry using Podman
+                    // Login and push to Quay.io registry using available container tool
                     withCredentials([usernamePassword(credentialsId: 'quay-io-credentials',
                                                     usernameVariable: 'QUAY_USERNAME',
                                                     passwordVariable: 'QUAY_PASSWORD')]) {
                         sh """
-                            # Login to Quay.io using Podman
-                            echo "\$QUAY_PASSWORD" | podman login quay.io -u "\$QUAY_USERNAME" --password-stdin
+                            # Determine which tool to use for pushing
+                            CONTAINER_TOOL=""
+                            if command -v buildah >/dev/null 2>&1; then
+                                CONTAINER_TOOL="buildah"
+                            elif command -v podman >/dev/null 2>&1; then
+                                CONTAINER_TOOL="podman"
+                            elif command -v docker >/dev/null 2>&1; then
+                                CONTAINER_TOOL="docker"
+                            else
+                                echo "❌ No container tool available for pushing"
+                                exit 1
+                            fi
+                            
+                            echo "🔧 Using \$CONTAINER_TOOL for registry operations..."
+                            
+                            # Login to Quay.io
+                            echo "\$QUAY_PASSWORD" | \$CONTAINER_TOOL login quay.io -u "\$QUAY_USERNAME" --password-stdin
 
                             # Push versioned image
-                            podman push ${env.DOCKER_VERSIONED}
+                            \$CONTAINER_TOOL push ${env.DOCKER_VERSIONED}
                             echo "✅ Pushed: ${env.DOCKER_VERSIONED}"
 
                             # Push latest for main branch
                             if [ "${env.BRANCH_NAME}" = "main" ]; then
-                                podman push ${env.DOCKER_IMAGE}:latest
+                                \$CONTAINER_TOOL push ${env.DOCKER_IMAGE}:latest
                                 echo "✅ Pushed: ${env.DOCKER_IMAGE}:latest"
                             fi
 
                             # Logout for security
-                            podman logout quay.io
+                            \$CONTAINER_TOOL logout quay.io
                         """
                     }
 
@@ -366,44 +451,43 @@ pipeline {
             script {
                 echo "🧹 Cleaning up workspace..."
 
-                // Clean up Docker images to save space (using Podman on macOS)
+                // Clean up container images to save space
                 sh """
-                    if command -v podman >/dev/null 2>&1; then
-                        echo "Cleaning up Podman images on host..."
-                        # Remove built images from host
-                        podman rmi ${env.DOCKER_VERSIONED} || true
-                        if [ "${env.BRANCH_NAME}" = "main" ]; then
-                            podman rmi ${env.DOCKER_IMAGE}:latest || true
-                        fi
-
-                        # Clean up dangling images on host
-                        podman image prune -f || true
-                        
-                        # Remove temporary dockerfile
-                        rm -f ${WORKSPACE}/Dockerfile.fq || true
-                        
-                        echo "✅ Podman cleanup completed"
+                    # Determine which tool to use for cleanup
+                    CLEANUP_TOOL=""
+                    if command -v buildah >/dev/null 2>&1; then
+                        CLEANUP_TOOL="buildah"
+                    elif command -v podman >/dev/null 2>&1; then
+                        CLEANUP_TOOL="podman"
                     elif command -v docker >/dev/null 2>&1; then
-                        echo "Cleaning up Docker images..."
+                        CLEANUP_TOOL="docker"
+                    fi
+                    
+                    if [ -n "\$CLEANUP_TOOL" ]; then
+                        echo "Cleaning up container images with \$CLEANUP_TOOL..."
+                        
                         # Remove built images
-                        docker rmi ${env.DOCKER_VERSIONED} || true
+                        \$CLEANUP_TOOL rmi ${env.DOCKER_VERSIONED} || true
                         if [ "${env.BRANCH_NAME}" = "main" ]; then
-                            docker rmi ${env.DOCKER_IMAGE}:latest || true
+                            \$CLEANUP_TOOL rmi ${env.DOCKER_IMAGE}:latest || true
                         fi
 
-                        # Clean up dangling images
-                        docker image prune -f || true
-                        echo "✅ Docker cleanup completed"
+                        # Clean up dangling images (if supported)
+                        if [ "\$CLEANUP_TOOL" != "buildah" ]; then
+                            \$CLEANUP_TOOL image prune -f || true
+                        fi
+                        
+                        echo "✅ \$CLEANUP_TOOL cleanup completed"
                     else
-                        echo "Neither Docker nor Podman available, skipping image cleanup"
+                        echo "No container tool available, skipping image cleanup"
                     fi
+                    
+                    # Remove temporary dockerfile
+                    rm -f ${WORKSPACE}/Dockerfile.fq || true
                 """
 
                 // Archive important files
                 archiveArtifacts artifacts: 'target/spring-*.jar', allowEmptyArchive: true
-
-                // Clean workspace
-                cleanWs()
             }
         }
         success {

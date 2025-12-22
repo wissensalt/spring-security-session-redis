@@ -12,7 +12,7 @@
     - name: Build on Local Machine
       community.docker.docker_compose_v2:
         project_src: .
-        build: yes
+        build: always
 
 - name: Push Docker image to remote registry (quay.io)
   hosts: localhost

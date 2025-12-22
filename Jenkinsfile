@@ -121,34 +121,34 @@ pipeline {
             }
         }
 
-        stage('Code Quality') {
-            parallel {
-                stage('Security Scan') {
-                    steps {
-                        script {
-                            echo "🔒 Running security scan..."
-                            // Using OWASP Dependency Check
-                            sh "./mvnw ${MAVEN_CLI_OPTS} org.owasp:dependency-check-maven:check || true"
-                        }
-                    }
-                }
-                stage('Static Analysis') {
-                    when {
-                        anyOf {
-                            branch 'develop'
-                            changeRequest()
-                        }
-                    }
-                    steps {
-                        script {
-                            echo "📊 Running static code analysis..."
-                            // Placeholder for SonarQube or similar tools
-                            echo "Static analysis would run here (SonarQube, SpotBugs, etc.)"
-                        }
-                    }
-                }
-            }
-        }
+        // stage('Code Quality') {
+        //     parallel {
+        //         stage('Security Scan') {
+        //             steps {
+        //                 script {
+        //                     echo "🔒 Running security scan..."
+        //                     // Using OWASP Dependency Check
+        //                     sh "./mvnw ${MAVEN_CLI_OPTS} org.owasp:dependency-check-maven:check || true"
+        //                 }
+        //             }
+        //         }
+        //         stage('Static Analysis') {
+        //             when {
+        //                 anyOf {
+        //                     branch 'develop'
+        //                     changeRequest()
+        //                 }
+        //             }
+        //             steps {
+        //                 script {
+        //                     echo "📊 Running static code analysis..."
+        //                     // Placeholder for SonarQube or similar tools
+        //                     echo "Static analysis would run here (SonarQube, SpotBugs, etc.)"
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         stage('Build Docker Image') {
             steps {

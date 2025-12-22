@@ -1,0 +1,47 @@
+---
+- name: Build Docker image (via docker-compose). Build on local machine
+  hosts: exp
+  connection: local
+  gather_facts: false
+  vars:
+    container_name: app
+    app_port: 8080
+
+  tasks:
+    - name: Stop existing container if running
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: stopped
+      ignore_errors: yes
+
+    - name: Remove existing container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Build and deploy on Remote Machine
+      community.docker.docker_compose_v2:
+        project_src: .
+        build: always
+
+    - name: Wait for application to be ready
+      uri:
+        url: "http://localhost:{{ app_port }}/actuator/health"
+        method: GET
+        status_code: 200
+      register: app_health
+      until: app_health.status == 200
+      retries: 30
+      delay: 10
+      ignore_errors: yes
+
+    - name: Display deployment status
+      debug:
+        msg: "Application deployed successfully and is running on port {{ app_port }}"
+      when: app_health.status == 200
+
+    - name: Display deployment failure
+      debug:
+        msg: "Application deployment failed or health check timeout"
+      when: app_health.status != 200

@@ -1,0 +1,172 @@
+---
+- name: Build Docker image (via docker-compose). Build on local machine
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    docker_daemon: tcp://dind:2375
+    compose_project_name: myapp
+    compose_file_path: ./docker-compose.yml
+
+  tasks:
+    - name: Build on Local Machine
+      community.docker.docker_compose:
+        project_src: .
+        build: yes
+
+- name: Push Docker image to remote registry (quay.io)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    docker_registry: quay.io
+    docker_registry_username: wissensalt
+    docker_registry_password: "Z$Vbf-C-9Ah7juH"
+    image_name: spring-security-session-redis
+    image_tag: latest
+
+  tasks:
+    - name: Log in to Docker registry
+      community.docker.docker_login:
+        registry_url: "{{ docker_registry }}"
+        username: "{{ docker_registry_username }}"
+        password: "{{ docker_registry_password }}"
+
+    - name: Tag local image for registry
+      community.docker.docker_image:
+        name: "spring-security-session-redis-app"
+        repository: "{{ docker_registry }}/{{ docker_registry_username }}/{{ image_name }}"
+        tag: "{{ image_tag }}"
+        source: local
+
+    - name: Push image to registry
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/{{ docker_registry_username }}/{{ image_name }}"
+        tag: "{{ image_tag }}"
+        push: yes
+        source: local
+
+
+- name: Deploy Docker image to remote server
+  hosts: exp
+  become: yes
+  vars:
+    docker_registry: quay.io
+    docker_registry_username: wissensalt
+    docker_registry_password: "Z$Vbf-C-9Ah7juH"
+    image_name: spring-security-session-redis
+    image_tag: latest
+    container_name: spring-security-redis-app
+    app_port: 8080
+
+  tasks:
+    - name: Log in to Docker registry on remote server
+      community.docker.docker_login:
+        registry_url: "{{ docker_registry }}"
+        username: "{{ docker_registry_username }}"
+        password: "{{ docker_registry_password }}"
+
+    - name: Stop existing container if running
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: stopped
+      ignore_errors: yes
+
+    - name: Remove existing container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Pull latest image from registry
+      community.docker.docker_image:
+        name: "{{ docker_registry }}/{{ docker_registry_username }}/{{ image_name }}:{{ image_tag }}"
+        source: pull
+        force_source: yes
+
+    - name: Create Docker network for application
+      community.docker.docker_network:
+        name: spring-app-network
+        state: present
+
+    - name: Start PostgreSQL container
+      community.docker.docker_container:
+        name: postgres-db
+        image: postgres:17.2-alpine3.21
+        state: started
+        restart_policy: always
+        networks:
+          - name: spring-app-network
+        ports:
+          - "5432:5432"
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: pgadmin
+          POSTGRES_DB: spring_security_redis_session
+        volumes:
+          - postgres_data:/var/lib/postgresql/data
+
+    - name: Start Redis container
+      community.docker.docker_container:
+        name: redis-cache
+        image: redis:alpine3.19
+        state: started
+        restart_policy: always
+        networks:
+          - name: spring-app-network
+        ports:
+          - "6379:6379"
+        volumes:
+          - redis_data:/data
+
+    - name: Wait for database to be ready
+      wait_for:
+        port: 5432
+        host: localhost
+        delay: 10
+        timeout: 60
+
+    - name: Wait for Redis to be ready
+      wait_for:
+        port: 6379
+        host: localhost
+        delay: 5
+        timeout: 30
+
+    - name: Deploy application container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_registry }}/{{ docker_registry_username }}/{{ image_name }}:{{ image_tag }}"
+        state: started
+        restart_policy: always
+        networks:
+          - name: spring-app-network
+        ports:
+          - "{{ app_port }}:8080"
+        env:
+          SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-db:5432/spring_security_redis_session
+          SPRING_DATASOURCE_USERNAME: postgres
+          SPRING_DATASOURCE_PASSWORD: pgadmin
+          SPRING_REDIS_HOST: redis-cache
+          SPRING_REDIS_PORT: "6379"
+          SPRING_PROFILES_ACTIVE: production
+
+    - name: Wait for application to be ready
+      uri:
+        url: "http://localhost:{{ app_port }}/actuator/health"
+        method: GET
+        status_code: 200
+      register: app_health
+      until: app_health.status == 200
+      retries: 30
+      delay: 10
+      ignore_errors: yes
+
+    - name: Display deployment status
+      debug:
+        msg: "Application deployed successfully and is running on port {{ app_port }}"
+      when: app_health.status == 200
+
+    - name: Display deployment failure
+      debug:
+        msg: "Application deployment failed or health check timeout"
+      when: app_health.status != 200

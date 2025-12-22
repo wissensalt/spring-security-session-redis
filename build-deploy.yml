@@ -13,6 +13,7 @@
       community.docker.docker_compose_v2:
         project_src: .
         build: always
+        docker_host: tcp://dind:2375
 
 - name: Push Docker image to remote registry (quay.io)
   hosts: localhost
@@ -30,6 +31,7 @@
         registry_url: "{{ docker_registry }}"
         username: "{{ docker_registry_username }}"
         password: "{{ docker_registry_password }}"
+        docker_host: tcp://dind:2375
 
     - name: Tag local image for registry
       community.docker.docker_image:
@@ -37,6 +39,7 @@
         repository: "{{ docker_registry }}/{{ docker_registry_username }}/{{ image_name }}"
         tag: "{{ image_tag }}"
         source: local
+        docker_host: tcp://dind:2375
 
     - name: Push image to registry
       community.docker.docker_image:
@@ -44,6 +47,7 @@
         tag: "{{ image_tag }}"
         push: yes
         source: local
+        docker_host: tcp://dind:2375
 
 
 - name: Deploy Docker image to remote server
